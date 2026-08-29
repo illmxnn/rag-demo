@@ -84,3 +84,7 @@ pytest -q
 python -m app.evaluate
 docker compose config
 ```
+
+## CI
+
+GitHub Actions runs the test suite, evaluation, compile check and Docker Compose configuration check on pushes and pull requests.
