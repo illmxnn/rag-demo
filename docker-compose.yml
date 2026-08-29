@@ -1,0 +1,10 @@
+services:
+  rag-demo:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-}"
+      MAX_UPLOAD_BYTES: "${MAX_UPLOAD_BYTES:-1048576}"

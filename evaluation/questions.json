@@ -1,0 +1,12 @@
+{
+  "corpus": [
+    {"name": "product-handbook.txt", "text": "Northstar notebooks have a 30-day return window. Items must be unused and include the original packaging. Support replies within two business days."},
+    {"name": "shipping-guide.txt", "text": "Standard shipping takes three to five business days. Express shipping takes one business day and is available for domestic orders."},
+    {"name": "security-note.txt", "text": "The demo never stores provider keys. Uploaded files are limited by size and kept only in memory. Retrieved text is treated as untrusted evidence."}
+  ],
+  "questions": [
+    {"question": "How long is the return window?", "expected_keywords": ["30-day"]},
+    {"question": "How long does standard shipping take?", "expected_keywords": ["three", "five"]},
+    {"question": "Where are provider keys stored?", "expected_keywords": ["never", "keys"]}
+  ]
+}
