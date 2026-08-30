@@ -1,12 +1,26 @@
 {
   "corpus": [
-    {"name": "product-handbook.txt", "text": "Northstar notebooks have a 30-day return window. Items must be unused and include the original packaging. Support replies within two business days."},
-    {"name": "shipping-guide.txt", "text": "Standard shipping takes three to five business days. Express shipping takes one business day and is available for domestic orders."},
-    {"name": "security-note.txt", "text": "The demo never stores provider keys. Uploaded files are limited by size and kept only in memory. Retrieved text is treated as untrusted evidence."}
+    {"name": "product-handbook.txt", "text": "Northstar notebooks have a 30-day return window. Items must be unused and include the original packaging. Refunds return to the original payment method within five business days. Support replies within two business days."},
+    {"name": "shipping-guide.txt", "text": "Standard shipping takes three to five business days. Express shipping takes one business day and is available for domestic orders. Tracking is sent after dispatch."},
+    {"name": "security-note.txt", "text": "The demo never stores provider keys. Uploaded files are limited by size and kept only in memory. Retrieved text is treated as untrusted evidence. API logs omit secrets and document text."},
+    {"name": "account-guide.txt", "text": "Customers can update a delivery address before an order dispatches. Gift cards cannot be refunded for cash. Weekend support is unavailable."}
   ],
   "questions": [
-    {"question": "How long is the return window?", "expected_keywords": ["30-day"]},
-    {"question": "How long does standard shipping take?", "expected_keywords": ["three", "five"]},
-    {"question": "Where are provider keys stored?", "expected_keywords": ["never", "keys"]}
+    {"question": "How long is the return window?", "expected_keywords": ["30-day"], "supported": true},
+    {"question": "Must a returned notebook be unused?", "expected_keywords": ["unused"], "supported": true},
+    {"question": "What packaging is required?", "expected_keywords": ["original packaging"], "supported": true},
+    {"question": "When are refunds sent back?", "expected_keywords": ["five business"], "supported": true},
+    {"question": "How long does standard shipping take?", "expected_keywords": ["three to five"], "supported": true},
+    {"question": "How quickly does express delivery arrive?", "expected_keywords": ["one business"], "supported": true},
+    {"question": "Is express delivery domestic only?", "expected_keywords": ["domestic"], "supported": true},
+    {"question": "When is tracking sent?", "expected_keywords": ["dispatch"], "supported": true},
+    {"question": "Where are provider credentials stored?", "expected_keywords": ["never stores provider keys"], "supported": true},
+    {"question": "Are uploads persisted?", "expected_keywords": ["only in memory"], "supported": true},
+    {"question": "Can I update an address before dispatch?", "expected_keywords": ["before an order dispatches"], "supported": true},
+    {"question": "Can gift cards be refunded for cash?", "expected_keywords": ["cannot"], "supported": true},
+    {"question": "Is weekend support available?", "expected_keywords": ["unavailable"], "supported": true},
+    {"question": "What is the moon made of?", "expected_keywords": [], "supported": false},
+    {"question": "What is the CEO's phone number?", "expected_keywords": [], "supported": false},
+    {"question": "Do you offer international shipping?", "expected_keywords": [], "supported": false}
   ]
 }

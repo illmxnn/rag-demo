@@ -1,82 +1,60 @@
-# Small Document QA
+# Hybrid RAG Portfolio Demo
 
-A standalone, public-safe portfolio demonstration of a document question-answering pipeline. It ingests synthetic text documents, creates bounded chunks, retrieves evidence with a deterministic local token-similarity index, and returns citations. An optional OpenAI-compatible adapter can generate an answer, but the default path is fully local and the test suite uses a deterministic fake provider.
-
-This is a learning/demo project, not a production service and not evidence of external model usage.
+An honest local document-QA demonstration: bounded ingestion, lexical retrieval, optional local sentence-transformer embeddings, persistent Qdrant vectors, hybrid reciprocal-rank fusion (RRF), citations, and conservative unsupported-question handling. It is a learning/portfolio project, **not production-ready**.
 
 ## Architecture
 
 ```text
-upload -> validation/parsing -> normalized document -> chunks -> local retriever
-                                                        \-> optional answer provider
-query  -> retrieval -> evidence threshold -> answer + source citations
+                  +-> persistent JSON document registry
+upload -> parse -> chunks -> lexical IDF index ----+ 
+                  +-> local embeddings -> Qdrant --+-> RRF -> evidence gate -> answer + citations
+query -> lexical | semantic | hybrid ----------------^                         \-> retrieval metadata/logs
 ```
 
-- **FastAPI + Pydantic** expose `/health`, `/documents`, and `/query`.
-- **Parsers** support TXT by default. PDF (`pypdf`) and DOCX (`python-docx`) are optional dependencies and are rejected with a clear error when unavailable.
-- **Retrieval** uses normalized token overlap with IDF weighting. It has no network or credentials requirement.
-- **Providers** implement a tiny protocol. `LocalExtractiveProvider` is deterministic; `OpenAICompatibleProvider` is opt-in through environment variables only.
-- **Safety** enforces extensions, byte limits, filename/path normalization, prompt-injection-resistant behavior (retrieved text is evidence, never instructions), and an explicit insufficient-evidence response.
+`lexical` has no model dependency. `semantic` uses `sentence-transformers/all-MiniLM-L6-v2` locally and Qdrant. `hybrid` fuses lexical and semantic rankings using RRF (`1 / (60 + rank)`). If the optional embedding/vector backend is unavailable, semantic/hybrid requests explicitly fall back to lexical and return `fallback_reason` in response metadata.
 
 ## Setup
 
 Requires Python 3.11+.
 
+### Lexical-only (offline, no model download)
+
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
 python -m pip install -e ".[dev,documents]"
 uvicorn app.main:app --reload
 ```
 
-OpenAPI is available at http://127.0.0.1:8000/docs.
-
-The minimal install is `python -m pip install -e ".[dev]"`. Add `[documents]` for PDF/DOCX parsing. No provider key is needed for tests or local extraction.
-
-## API examples
+### Semantic/vector mode
 
 ```bash
-curl http://127.0.0.1:8000/health
+python -m pip install -e ".[dev,documents,semantic]"
+docker compose up -d qdrant
+# The first semantic query downloads the compact public model into the local model cache.
+# PowerShell:
+$env:SEMANTIC_ENABLED = "true"
+$env:QDRANT_URL = "http://localhost:6333"
+uvicorn app.main:app --reload
+```
+
+Or run the complete stack with `SEMANTIC_ENABLED=true docker compose up --build`. Compose persists document metadata in `rag-data` and vectors in `qdrant-data` volumes.
+
+## API
+
+```bash
 curl -F "file=@evaluation/fixtures/product-handbook.txt" http://127.0.0.1:8000/documents
-curl -X POST http://127.0.0.1:8000/query -H "Content-Type: application/json" -d "{\"question\":\"What is the return window?\"}"
+curl http://127.0.0.1:8000/documents
+curl -X POST http://127.0.0.1:8000/query -H "Content-Type: application/json" -d '{"question":"What is the return window?","retrieval_mode":"hybrid"}'
+curl -X DELETE http://127.0.0.1:8000/documents/product-handbook.txt
+curl -X DELETE http://127.0.0.1:8000/documents
 ```
 
-The query response contains `answer`, `sufficient_evidence`, and `citations` with document name, chunk id, and a short excerpt. Questions below the evidence threshold return a conservative “insufficient evidence” answer rather than guessing.
+`POST /documents` rejects duplicate filenames (409). `GET /documents`, `DELETE /documents/{name}`, and `DELETE /documents` provide local corpus management. Query metadata records requested/used mode, hit count, latency, and any safe fallback. Logs contain only mode, counts, latency and error class—not keys, question content, or document text.
 
-## Docker
+## Evaluation and verification
 
-```bash
-docker compose up --build
-```
-
-The container stores uploaded documents only in its ephemeral `/tmp/rag-demo-data` volume. Do not mount sensitive material into it.
-
-## Evaluation
-
-`evaluation/questions.json` contains a small synthetic corpus and expected evidence keywords. Run:
-
-```bash
-pytest -q
-python -m app.evaluate
-```
-
-The evaluation reports measured retrieval hit rate for the included questions. It is intentionally small and is not a benchmark or a quality claim about real-world data.
-
-## Configuration
-
-Copy `.env.example` to `.env` if desired. `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` enable the optional OpenAI-compatible provider. The API key is read only from the environment and is never logged or stored. If any required setting is absent, the service remains local and deterministic.
-
-## Limitations and security notes
-
-- In-memory storage is used; restarts remove the index.
-- Token overlap is intentionally simple and does not provide semantic understanding, reranking, access control, OCR, malware scanning, authentication, or tenant isolation.
-- PDF/DOCX parsing depends on optional libraries and should be treated as untrusted input handling, not a complete file security boundary.
-- Uploads are size-limited, extension allowlisted, decoded safely, and never interpreted as filesystem paths. Filenames are metadata only.
-- Retrieved content can contain prompt-injection text. Providers receive it in a clearly delimited evidence section, and the application never treats retrieved text as executable instructions.
-- Synthetic fixtures contain no private, customer, or real candidate data.
-
-## Exact verification commands
+The synthetic corpus has 16 questions (13 supported, 3 unsupported). It injects an offline fake embedding provider/vector store, so tests and evaluation never download a model.
 
 ```bash
 python -m compileall -q app tests
@@ -85,6 +63,22 @@ python -m app.evaluate
 docker compose config
 ```
 
-## CI
+Measured on this checkout (offline deterministic evaluation):
 
-GitHub Actions runs the test suite, evaluation, compile check and Docker Compose configuration check on pushes and pull requests.
+| Mode | Retrieval hit rate | Unsupported rejection | Average latency |
+|---|---:|---:|---:|
+| lexical | 11/13 (85%) | 2/3 (67%) | 0.094 ms |
+| semantic | 10/13 (77%) | 2/3 (67%) | 0.017 ms |
+| hybrid | 11/13 (85%) | 2/3 (67%) | 0.090 ms |
+
+These values were measured locally with the offline deterministic evaluation fixture; rerun it because latency is host-dependent. The evaluation is a regression fixture, not a benchmark. It measures whether expected synthetic evidence appears first and whether unsupported prompts return no evidence.
+
+## Optional answer provider
+
+Local extraction is the default. An OpenAI-compatible provider is opt-in with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`; it has a bounded timeout and one retry by default. A provider failure returns the conservative insufficient-evidence response. Keys remain environment-only and are never logged.
+
+## Correct interview claims and limitations
+
+You can accurately say this project implements local semantic embeddings, a persistent Qdrant vector index, lexical fallback, RRF hybrid ranking, offline-injected tests, basic document lifecycle controls, explicit unsupported handling, and an optional guarded answer-provider boundary.
+
+Do **not** claim production readiness, data isolation, authentication/authorization, malware scanning, OCR, tenant controls, observability infrastructure, benchmark-grade quality, or that semantic mode works without first downloading the model and running Qdrant. The JSON metadata registry and Qdrant operations are intentionally small-demo scope; cross-process ingest locking, robust recovery, reranking, access control, and operational deployment are future work.

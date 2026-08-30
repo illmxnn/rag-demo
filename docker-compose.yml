@@ -8,3 +8,23 @@ services:
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_MODEL: "${LLM_MODEL:-}"
       MAX_UPLOAD_BYTES: "${MAX_UPLOAD_BYTES:-1048576}"
+      RAG_STATE_PATH: /data/documents.json
+      SEMANTIC_ENABLED: "${SEMANTIC_ENABLED:-false}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "${QDRANT_COLLECTION:-rag_chunks}"
+    volumes:
+      - rag-data:/data
+    depends_on:
+      qdrant:
+        condition: service_started
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+volumes:
+  rag-data:
+  qdrant-data:
