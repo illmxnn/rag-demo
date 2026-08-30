@@ -273,7 +273,8 @@ class LocalRetriever:
         except EmbeddingUnavailable:
             raise
         except Exception as exc:
-            raise VectorStoreUnavailable("semantic vector query failed") from exc
+            detail = str(exc).strip() or exc.__class__.__name__
+            raise VectorStoreUnavailable(f"semantic vector query failed: {detail}") from exc
 
     def search(self, question: str, top_k: int = 3, mode: str = "lexical") -> tuple[list[Hit], str, str | None]:
         if mode == "lexical":

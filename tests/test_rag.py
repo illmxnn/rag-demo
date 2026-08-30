@@ -69,6 +69,18 @@ def test_dimension_mismatch_and_semantic_fallback() -> None:
     assert hits and mode == "lexical" and fallback
 
 
+def test_semantic_query_fallback_retains_backend_failure_detail() -> None:
+    class FailingStore(InMemoryVectorStore):
+        def search(self, vector, limit):
+            raise RuntimeError("connection refused")
+
+    index = LocalRetriever(embedding_engine=FakeEmbedding(), vector_store=FailingStore(2))
+    index.add([{"chunk_id": "x", "document": "x.txt", "text": "return policy"}])
+    hits, mode, fallback = index.search("return", mode="semantic")
+    assert hits and mode == "lexical"
+    assert fallback == "semantic vector query failed: connection refused"
+
+
 def test_semantic_startup_transport_failure_has_explicit_lexical_fallback(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("SEMANTIC_ENABLED", "true")
     monkeypatch.setenv("RAG_STATE_PATH", str(tmp_path / "state.json"))

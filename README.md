@@ -31,7 +31,7 @@ uvicorn app.main:app --reload
 ```bash
 python -m pip install -e ".[dev,documents,semantic]"
 docker compose up -d qdrant
-# The first semantic query downloads the compact public model into the local model cache.
+# Semantic startup loads the compact local model and may download it into the local cache on first use.
 # PowerShell:
 $env:SEMANTIC_ENABLED = "true"
 $env:QDRANT_URL = "http://localhost:6333"
