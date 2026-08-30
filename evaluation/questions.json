@@ -2,7 +2,7 @@
   "corpus": [
     {"name": "product-handbook.txt", "text": "Northstar notebooks have a 30-day return window. Items must be unused and include the original packaging. Refunds return to the original payment method within five business days. Support replies within two business days."},
     {"name": "shipping-guide.txt", "text": "Standard shipping takes three to five business days. Express shipping takes one business day and is available for domestic orders. Tracking is sent after dispatch."},
-    {"name": "security-note.txt", "text": "The demo never stores provider keys. The document registry is persisted at RAG_STATE_PATH. When semantic retrieval is enabled, Qdrant persists vectors. Uploaded files are parsed into the registry rather than retained as separate source files. Retrieved text is treated as untrusted evidence. API logs omit secrets and document text."},
+    {"name": "security-note.txt", "text": "The demo never stores remote generation keys. The document registry is persisted at RAG_STATE_PATH. When semantic retrieval is enabled, Qdrant persists vectors. Uploaded files are parsed into the registry rather than retained as separate source files. Retrieved text is treated as untrusted evidence. API logs omit secrets and document text."},
     {"name": "account-guide.txt", "text": "Customers can update a delivery address before an order dispatches. Gift cards cannot be refunded for cash. Weekend support is unavailable."}
   ],
   "questions": [
@@ -14,7 +14,7 @@
     {"question": "How quickly does express shipping arrive?", "expected_keywords": ["one business"], "supported": true},
     {"question": "Is express delivery domestic only?", "expected_keywords": ["domestic"], "supported": true},
     {"question": "When is tracking sent?", "expected_keywords": ["dispatch"], "supported": true},
-    {"question": "Where are provider keys stored?", "expected_keywords": ["never stores provider keys"], "supported": true},
+    {"question": "Where are remote generation keys stored?", "expected_keywords": ["never stores remote generation keys"], "supported": true},
     {"question": "Where is the document registry persisted?", "expected_keywords": ["rag_state_path"], "supported": true},
     {"question": "Can I update an address before dispatch?", "expected_keywords": ["before an order dispatches"], "supported": true},
     {"question": "Can gift cards be refunded for cash?", "expected_keywords": ["cannot"], "supported": true},

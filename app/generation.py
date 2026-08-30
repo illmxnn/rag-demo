@@ -12,18 +12,18 @@ from .retrieval import Hit
 INSUFFICIENT = "I don't have enough evidence in the indexed documents to answer that question."
 
 
-class AnswerProvider(Protocol):
+class AnswerGenerator(Protocol):
     def answer(self, question: str, hits: list[Hit]) -> str: ...
 
 
-class LocalExtractiveProvider:
+class LocalExtractiveGenerator:
     def answer(self, question: str, hits: list[Hit]) -> str:
         if not hits:
             return INSUFFICIENT
         return hits[0].text
 
 
-class OpenAICompatibleProvider:
+class RemoteGenerationClient:
     def __init__(self, base_url: str, api_key: str, model: str, timeout_seconds: float = 10, retries: int = 1) -> None:
         self.base_url, self.api_key, self.model = base_url.rstrip("/"), api_key, model
         self.timeout_seconds, self.retries = timeout_seconds, retries
@@ -40,13 +40,13 @@ class OpenAICompatibleProvider:
                     return str(content)
             except (HTTPError, URLError, TimeoutError, KeyError, json.JSONDecodeError) as exc:
                 if attempt == self.retries:
-                    raise RuntimeError("optional answer provider failed") from exc
+                    raise RuntimeError("optional remote generation failed") from exc
                 time.sleep(0.1 * (attempt + 1))
         return INSUFFICIENT
 
 
-def configured_provider() -> AnswerProvider:
-    base, key, model = os.getenv("LLM_BASE_URL"), os.getenv("LLM_API_KEY"), os.getenv("LLM_MODEL")
+def configured_generator() -> AnswerGenerator:
+    base, key, model = os.getenv("GENERATION_BASE_URL"), os.getenv("GENERATION_API_KEY"), os.getenv("GENERATION_MODEL")
     if base and key and model:
-        return OpenAICompatibleProvider(base, key, model, float(os.getenv("LLM_TIMEOUT_SECONDS", "10")), int(os.getenv("LLM_RETRIES", "1")))
-    return LocalExtractiveProvider()
+        return RemoteGenerationClient(base, key, model, float(os.getenv("GENERATION_TIMEOUT_SECONDS", "10")), int(os.getenv("GENERATION_RETRIES", "1")))
+    return LocalExtractiveGenerator()

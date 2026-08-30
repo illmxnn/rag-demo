@@ -4,9 +4,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      LLM_BASE_URL: "${LLM_BASE_URL:-}"
-      LLM_API_KEY: "${LLM_API_KEY:-}"
-      LLM_MODEL: "${LLM_MODEL:-}"
+      GENERATION_BASE_URL: "${GENERATION_BASE_URL:-}"
+      GENERATION_API_KEY: "${GENERATION_API_KEY:-}"
+      GENERATION_MODEL: "${GENERATION_MODEL:-}"
       MAX_UPLOAD_BYTES: "${MAX_UPLOAD_BYTES:-1048576}"
       RAG_STATE_PATH: /data/documents.json
       SEMANTIC_ENABLED: "${SEMANTIC_ENABLED:-false}"

@@ -67,18 +67,18 @@ Measured on this checkout (offline deterministic evaluation):
 
 | Mode | Retrieval hit rate | Unsupported rejection | Average latency |
 |---|---:|---:|---:|
-| lexical | 13/13 (100%) | 3/3 (100%) | 0.082 ms |
-| semantic | 13/13 (100%) | 3/3 (100%) | 0.030 ms |
-| hybrid | 13/13 (100%) | 3/3 (100%) | 0.117 ms |
+| lexical | 13/13 (100%) | 3/3 (100%) | 0.101 ms |
+| semantic | 13/13 (100%) | 3/3 (100%) | 0.038 ms |
+| hybrid | 13/13 (100%) | 3/3 (100%) | 0.124 ms |
 
 The hit-rate values were measured locally with the offline deterministic fixture; rerun it because latency is host-dependent. The evaluation is a regression fixture, not a benchmark. It requires retrieval correctness, sufficient evidence and expected-answer keyword coverage for supported prompts, while requiring rejection for declared unsupported prompts.
 
-## Optional answer provider
+## Optional remote generation
 
-Local extraction is the default. An OpenAI-compatible provider is opt-in with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`; it has a bounded timeout and one retry by default. A provider failure returns the conservative insufficient-evidence response. Keys remain environment-only and are never logged.
+Local extraction is the default. A compatible remote generation endpoint is opt-in with `GENERATION_BASE_URL`, `GENERATION_API_KEY`, and `GENERATION_MODEL`; it has a bounded timeout and one retry by default. A request failure returns the conservative insufficient-evidence response. Keys remain environment-only and are never logged.
 
 ## Correct interview claims and limitations
 
-You can accurately say this project implements local semantic embeddings, a persistent Qdrant vector index, lexical fallback, RRF hybrid ranking, offline-injected tests, basic document lifecycle controls, explicit unsupported handling, and an optional guarded answer-provider boundary.
+You can accurately say this project implements local semantic embeddings, a persistent Qdrant vector index, lexical fallback, RRF hybrid ranking, offline-injected tests, basic document lifecycle controls, explicit unsupported handling, and an optional guarded answer-generation boundary.
 
 Do **not** claim production readiness, data isolation, authentication/authorization, malware scanning, OCR, tenant controls, observability infrastructure, benchmark-grade quality, or that semantic mode works without first downloading the model and running Qdrant. The JSON metadata registry and Qdrant operations are intentionally small-demo scope; cross-process ingest locking, robust recovery, reranking, access control, and operational deployment are future work.

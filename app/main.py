@@ -10,8 +10,8 @@ from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 
 from .ingest import chunk_text, parse_document
 from .models import Citation, DocumentInfo, IngestResponse, QueryRequest, QueryResponse, ResetResponse, RetrievalMetadata
-from .providers import INSUFFICIENT, configured_provider
-from .retrieval import EmbeddingUnavailable, LocalRetriever, QdrantVectorStore, SentenceTransformerProvider, VectorStoreUnavailable, tokens
+from .generation import INSUFFICIENT, configured_generator
+from .retrieval import EmbeddingUnavailable, LocalRetriever, QdrantVectorStore, SentenceTransformerEngine, VectorStoreUnavailable, tokens
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("rag_demo")
@@ -23,9 +23,9 @@ def build_retriever() -> LocalRetriever:
     if not semantic_enabled:
         return LocalRetriever(state_path=state_path)
     try:
-        embedding = SentenceTransformerProvider(os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
+        embedding = SentenceTransformerEngine(os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
         vector = QdrantVectorStore(os.getenv("QDRANT_URL", "http://localhost:6333"), os.getenv("QDRANT_COLLECTION", "rag_chunks"), embedding.dimension)
-        return LocalRetriever(state_path=state_path, embedding_provider=embedding, vector_store=vector)
+        return LocalRetriever(state_path=state_path, embedding_engine=embedding, vector_store=vector)
     except (EmbeddingUnavailable, VectorStoreUnavailable, ValueError, OSError) as exc:
         logger.warning("semantic_backend_unavailable fallback=lexical reason=%s", str(exc))
         fallback = LocalRetriever(state_path=state_path)
@@ -35,12 +35,12 @@ def build_retriever() -> LocalRetriever:
 
 app = FastAPI(title="Hybrid RAG Portfolio Demo", version="0.2.0")
 retriever = build_retriever()
-provider = configured_provider()
+generator = configured_generator()
 
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    return {"status": "ok", "documents": len(retriever.documents), "semantic_configured": bool(retriever.embedding_provider and retriever.vector_store), "semantic_fallback_reason": getattr(retriever, "startup_fallback_reason", None)}
+    return {"status": "ok", "documents": len(retriever.documents), "semantic_configured": bool(retriever.embedding_engine and retriever.vector_store), "semantic_fallback_reason": getattr(retriever, "startup_fallback_reason", None)}
 
 
 @app.post("/documents", response_model=IngestResponse, status_code=201)
@@ -84,13 +84,14 @@ def reset_documents() -> ResetResponse:
 def query(request: QueryRequest) -> QueryResponse:
     started = time.perf_counter()
     hits, used_mode, fallback_reason = retriever.search(request.question, request.top_k, request.retrieval_mode)
-    fallback_reason = fallback_reason or getattr(retriever, "startup_fallback_reason", None)
+    startup_reason = getattr(retriever, "startup_fallback_reason", None)
+    fallback_reason = startup_reason if request.retrieval_mode != "lexical" and startup_reason else fallback_reason
     sufficient = has_sufficient_evidence(request.question, hits, used_mode)
     usable = hits if sufficient else []
     try:
-        answer = provider.answer(request.question, usable)
+        answer = generator.answer(request.question, usable)
     except Exception:
-        logger.exception("answer_provider_failed")
+        logger.exception("answer_generation_failed")
         answer = INSUFFICIENT
         usable = []
         sufficient = False

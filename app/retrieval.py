@@ -25,7 +25,7 @@ class Hit:
     score: float
 
 
-class EmbeddingProvider(Protocol):
+class EmbeddingEngine(Protocol):
     @property
     def dimension(self) -> int: ...
 
@@ -55,7 +55,7 @@ class VectorStoreUnavailable(EmbeddingUnavailable):
     """The optional vector backend could not be contacted or initialized."""
 
 
-class SentenceTransformerProvider:
+class SentenceTransformerEngine:
     """Lazy local model loader: importing/running lexical mode never downloads a model."""
 
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> None:
@@ -146,7 +146,7 @@ class QdrantVectorStore:
             else:
                 stored_dimension = self.client.get_collection(collection).config.params.vectors.size
                 if stored_dimension != dimension:
-                    raise ValueError(f"vector dimension mismatch: collection has {stored_dimension}, embedding provider has {dimension}")
+                    raise ValueError(f"vector dimension mismatch: collection has {stored_dimension}, embedding engine has {dimension}")
         except ValueError:
             raise
         except Exception as exc:
@@ -195,15 +195,15 @@ class QdrantVectorStore:
 
 
 class LocalRetriever:
-    def __init__(self, state_path: str | Path | None = None, embedding_provider: EmbeddingProvider | None = None, vector_store: VectorStore | None = None) -> None:
+    def __init__(self, state_path: str | Path | None = None, embedding_engine: EmbeddingEngine | None = None, vector_store: VectorStore | None = None) -> None:
         self.state_path = Path(state_path) if state_path else None
         self.chunks: list[dict[str, str]] = []
         self.documents: dict[str, str] = {}
-        self.embedding_provider, self.vector_store = embedding_provider, vector_store
+        self.embedding_engine, self.vector_store = embedding_engine, vector_store
         if self.state_path and self.state_path.exists():
             saved = json.loads(self.state_path.read_text(encoding="utf-8"))
             self.chunks, self.documents = saved.get("chunks", []), saved.get("documents", {})
-            if self.embedding_provider and self.vector_store:
+            if self.embedding_engine and self.vector_store:
                 self._sync_vectors()
 
     def _save(self) -> None:
@@ -212,8 +212,8 @@ class LocalRetriever:
             self.state_path.write_text(json.dumps({"chunks": self.chunks, "documents": self.documents}), encoding="utf-8")
 
     def _sync_vectors(self) -> None:
-        if self.embedding_provider and self.vector_store:
-            vectors = self.embedding_provider.embed([chunk["text"] for chunk in self.chunks]) if self.chunks else []
+        if self.embedding_engine and self.vector_store:
+            vectors = self.embedding_engine.embed([chunk["text"] for chunk in self.chunks]) if self.chunks else []
             self.vector_store.reconcile(self.chunks, vectors)
 
     def add(self, chunks: list[dict[str, str]], checksum: str | None = None) -> None:
@@ -228,8 +228,8 @@ class LocalRetriever:
         self.chunks.extend(chunks)
         self.documents[name] = checksum
         try:
-            if self.embedding_provider and self.vector_store:
-                vectors = self.embedding_provider.embed([chunk["text"] for chunk in chunks])
+            if self.embedding_engine and self.vector_store:
+                vectors = self.embedding_engine.embed([chunk["text"] for chunk in chunks])
                 self.vector_store.upsert(chunks, vectors)
         except Exception:
             self.chunks = self.chunks[:-len(chunks)]
@@ -266,10 +266,10 @@ class LocalRetriever:
         return sorted((hit for hit in scored if hit.score > 0), key=lambda hit: (-hit.score, hit.chunk_id))[:top_k]
 
     def semantic_search(self, question: str, top_k: int = 3) -> list[Hit]:
-        if not self.embedding_provider or not self.vector_store:
+        if not self.embedding_engine or not self.vector_store:
             raise EmbeddingUnavailable("semantic retrieval is not configured")
         try:
-            return self.vector_store.search(self.embedding_provider.embed([question])[0], top_k)
+            return self.vector_store.search(self.embedding_engine.embed([question])[0], top_k)
         except EmbeddingUnavailable:
             raise
         except Exception as exc:
