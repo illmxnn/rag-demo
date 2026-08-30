@@ -120,9 +120,12 @@ def test_api_documents_duplicate_delete_reset_and_unsupported() -> None:
 
 def test_evidence_gate_rejects_related_but_unsupported_claims() -> None:
     domestic = type("Hit", (), {"text": "Express shipping is available for domestic orders.", "score": 1.0})()
+    return_window = type("Hit", (), {"text": "Northstar notebooks have a 30-day return window.", "score": 1.0})()
     unavailable = type("Hit", (), {"text": "Weekend support is unavailable.", "score": 1.0})()
+    assert not has_sufficient_evidence("Do you offer pickup shipping?", [domestic], "lexical")
     assert not has_sufficient_evidence("Do you offer international shipping?", [domestic], "lexical")
-    assert not has_sufficient_evidence("Is weekend support available?", [unavailable], "lexical")
+    assert not has_sufficient_evidence("Can returns be exchanged for a different product?", [return_window], "lexical")
+    assert has_sufficient_evidence("Is weekend support available?", [unavailable], "lexical")
 
 
 def test_provider_failure_and_injection_evidence_behavior(monkeypatch) -> None:

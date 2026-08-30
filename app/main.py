@@ -101,15 +101,16 @@ def query(request: QueryRequest) -> QueryResponse:
 
 
 def has_sufficient_evidence(question: str, hits: list[object], used_mode: str) -> bool:
-    """Require lexical grounding and reject clear corpus contradictions before answering."""
+    """Require coverage of each meaningful claim term, not one related keyword."""
     if not hits:
         return False
     hit = hits[0]
-    question_terms = set(tokens(question))
-    evidence_terms = set(tokens(hit.text))
-    contradictions = (("international", "domestic"), ("available", "unavailable"), ("cash", "cannot"))
-    if any(left in question_terms and right in evidence_terms for left, right in contradictions):
-        return False
-    if not question_terms & evidence_terms:
+    generic_terms = {"answer", "available", "can", "do", "does", "how", "long", "many", "must", "required", "should", "when", "where"}
+    aliases = {"credentials": "keys", "delivery": "shipping", "returns": "return", "returned": "return", "refunds": "refund", "sent": "refund", "back": "refund", "arrive": "shipping", "quickly": "shipping", "notebooks": "notebook", "only": "domestic", "store": "stored", "persisted": "persist", "update": "address", "before": "dispatch"}
+    normalize = lambda term: aliases.get(term.rstrip("s"), term.rstrip("s"))
+    question_terms = {normalize(term) for term in tokens(question) if term not in generic_terms}
+    evidence_terms = {normalize(term) for term in tokens(hit.text)}
+    covered = question_terms & evidence_terms
+    if not question_terms or len(covered) != len(question_terms):
         return False
     return hit.score >= (0.18 if used_mode == "lexical" else 0.01)

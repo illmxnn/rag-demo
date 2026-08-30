@@ -54,7 +54,7 @@ curl -X DELETE http://127.0.0.1:8000/documents
 
 ## Evaluation and verification
 
-The synthetic corpus has 16 questions (13 supported, 3 unsupported). It injects a **deterministic in-memory embedding and vector-store fixture**; it is not a SentenceTransformer/Qdrant benchmark and never downloads a model. Evaluation exits nonzero unless every declared unsupported question is rejected by the deterministic evidence gate.
+The synthetic corpus has 16 questions (13 supported, 3 unsupported). Its persisted-state fixture matches the application: document metadata/chunks persist at `RAG_STATE_PATH`; vectors persist only when semantic mode uses Qdrant; source uploads are not separately retained. It injects a **deterministic in-memory embedding and vector-store fixture**; it is not a SentenceTransformer/Qdrant benchmark and never downloads a model. Evaluation exits nonzero unless every supported question has sufficient evidence plus expected-answer keyword coverage and every declared unsupported question is rejected.
 
 ```bash
 python -m compileall -q app tests
@@ -67,11 +67,11 @@ Measured on this checkout (offline deterministic evaluation):
 
 | Mode | Retrieval hit rate | Unsupported rejection | Average latency |
 |---|---:|---:|---:|
-| lexical | 11/13 (85%) | 3/3 (100%) | host-dependent |
-| semantic | 10/13 (77%) | 3/3 (100%) | host-dependent |
-| hybrid | 11/13 (85%) | 3/3 (100%) | host-dependent |
+| lexical | 13/13 (100%) | 3/3 (100%) | 0.082 ms |
+| semantic | 13/13 (100%) | 3/3 (100%) | 0.030 ms |
+| hybrid | 13/13 (100%) | 3/3 (100%) | 0.117 ms |
 
-The hit-rate values were measured locally with the offline deterministic fixture; rerun it because latency is host-dependent. The evaluation is a regression fixture, not a benchmark. It measures whether expected synthetic evidence appears first and whether the deterministic evidence gate rejects declared unsupported prompts.
+The hit-rate values were measured locally with the offline deterministic fixture; rerun it because latency is host-dependent. The evaluation is a regression fixture, not a benchmark. It requires retrieval correctness, sufficient evidence and expected-answer keyword coverage for supported prompts, while requiring rejection for declared unsupported prompts.
 
 ## Optional answer provider
 
