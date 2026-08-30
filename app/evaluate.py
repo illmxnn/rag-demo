@@ -1,13 +1,15 @@
 import json
+import sys
 import time
 from pathlib import Path
 
 from .ingest import ParsedDocument, chunk_text
 from .retrieval import InMemoryVectorStore, LocalRetriever
+from .main import has_sufficient_evidence
 
 
 class EvaluationEmbedding:
-    """Offline deterministic semantic fixture; never downloads a model."""
+    """Offline deterministic fixture, not a SentenceTransformer embedding."""
 
     vocabulary = ("return", "unused", "packaging", "refund", "shipping", "express", "domestic", "tracking", "keys", "upload", "address", "gift", "weekend")
     synonyms = {"returns": "return", "refunded": "refund", "refunds": "refund", "delivery": "shipping", "credentials": "keys", "provider": "keys", "uploads": "upload", "persisted": "upload", "update": "address", "cards": "gift"}
@@ -36,6 +38,7 @@ def main() -> None:
     retriever = LocalRetriever(embedding_provider=embedding, vector_store=InMemoryVectorStore(embedding.dimension))
     for item in data["corpus"]:
         retriever.add(chunk_text(ParsedDocument(item["name"], item["text"]), size=35, overlap=5))
+    failures = []
     for mode in ("lexical", "semantic", "hybrid"):
         supported_hits = rejected = 0
         latencies = []
@@ -45,11 +48,16 @@ def main() -> None:
             latencies.append((time.perf_counter() - started) * 1000)
             if item["supported"]:
                 supported_hits += hit(item, hits)
-            if not item["supported"] and not hits:
+            if not item["supported"] and not has_sufficient_evidence(item["question"], hits, mode):
                 rejected += 1
         supported = sum(item["supported"] for item in data["questions"])
         unsupported = sum(not item["supported"] for item in data["questions"])
         print(f"mode={mode} retrieval_hit_rate={supported_hits}/{supported} ({supported_hits / supported:.0%}) unsupported_rejection={rejected}/{unsupported} ({rejected / unsupported:.0%}) avg_latency_ms={sum(latencies) / len(data['questions']):.3f}")
+        if rejected != unsupported:
+            failures.append(mode)
+    if failures:
+        print(f"ERROR: unsupported questions were not rejected for: {', '.join(failures)}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

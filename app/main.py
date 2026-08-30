@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from .ingest import chunk_text, parse_document
 from .models import Citation, DocumentInfo, IngestResponse, QueryRequest, QueryResponse, ResetResponse, RetrievalMetadata
 from .providers import INSUFFICIENT, configured_provider
-from .retrieval import EmbeddingUnavailable, LocalRetriever, QdrantVectorStore, SentenceTransformerProvider
+from .retrieval import EmbeddingUnavailable, LocalRetriever, QdrantVectorStore, SentenceTransformerProvider, VectorStoreUnavailable, tokens
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("rag_demo")
@@ -26,9 +26,11 @@ def build_retriever() -> LocalRetriever:
         embedding = SentenceTransformerProvider(os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
         vector = QdrantVectorStore(os.getenv("QDRANT_URL", "http://localhost:6333"), os.getenv("QDRANT_COLLECTION", "rag_chunks"), embedding.dimension)
         return LocalRetriever(state_path=state_path, embedding_provider=embedding, vector_store=vector)
-    except (EmbeddingUnavailable, ValueError, OSError) as exc:
+    except (EmbeddingUnavailable, VectorStoreUnavailable, ValueError, OSError) as exc:
         logger.warning("semantic_backend_unavailable fallback=lexical reason=%s", str(exc))
-        return LocalRetriever(state_path=state_path)
+        fallback = LocalRetriever(state_path=state_path)
+        fallback.startup_fallback_reason = str(exc)
+        return fallback
 
 
 app = FastAPI(title="Hybrid RAG Portfolio Demo", version="0.2.0")
@@ -38,7 +40,7 @@ provider = configured_provider()
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    return {"status": "ok", "documents": len(retriever.documents), "semantic_configured": bool(retriever.embedding_provider and retriever.vector_store)}
+    return {"status": "ok", "documents": len(retriever.documents), "semantic_configured": bool(retriever.embedding_provider and retriever.vector_store), "semantic_fallback_reason": getattr(retriever, "startup_fallback_reason", None)}
 
 
 @app.post("/documents", response_model=IngestResponse, status_code=201)
@@ -82,7 +84,8 @@ def reset_documents() -> ResetResponse:
 def query(request: QueryRequest) -> QueryResponse:
     started = time.perf_counter()
     hits, used_mode, fallback_reason = retriever.search(request.question, request.top_k, request.retrieval_mode)
-    sufficient = bool(hits and ((used_mode == "lexical" and hits[0].score >= 0.18) or used_mode != "lexical" and hits[0].score >= 0.01))
+    fallback_reason = fallback_reason or getattr(retriever, "startup_fallback_reason", None)
+    sufficient = has_sufficient_evidence(request.question, hits, used_mode)
     usable = hits if sufficient else []
     try:
         answer = provider.answer(request.question, usable)
@@ -95,3 +98,18 @@ def query(request: QueryRequest) -> QueryResponse:
     logger.info("query_completed requested_mode=%s used_mode=%s hit_count=%d latency_ms=%.2f fallback=%s", request.retrieval_mode, used_mode, len(usable), latency_ms, bool(fallback_reason))
     citations = [Citation(document=h.document, chunk_id=h.chunk_id, excerpt=h.text[:240], score=h.score) for h in usable]
     return QueryResponse(answer=answer or INSUFFICIENT, sufficient_evidence=sufficient, citations=citations, retrieval=RetrievalMetadata(requested_mode=request.retrieval_mode, used_mode=used_mode, hit_count=len(usable), latency_ms=latency_ms, fallback_reason=fallback_reason))
+
+
+def has_sufficient_evidence(question: str, hits: list[object], used_mode: str) -> bool:
+    """Require lexical grounding and reject clear corpus contradictions before answering."""
+    if not hits:
+        return False
+    hit = hits[0]
+    question_terms = set(tokens(question))
+    evidence_terms = set(tokens(hit.text))
+    contradictions = (("international", "domestic"), ("available", "unavailable"), ("cash", "cannot"))
+    if any(left in question_terms and right in evidence_terms for left, right in contradictions):
+        return False
+    if not question_terms & evidence_terms:
+        return False
+    return hit.score >= (0.18 if used_mode == "lexical" else 0.01)

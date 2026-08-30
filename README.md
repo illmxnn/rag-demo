@@ -54,7 +54,7 @@ curl -X DELETE http://127.0.0.1:8000/documents
 
 ## Evaluation and verification
 
-The synthetic corpus has 16 questions (13 supported, 3 unsupported). It injects an offline fake embedding provider/vector store, so tests and evaluation never download a model.
+The synthetic corpus has 16 questions (13 supported, 3 unsupported). It injects a **deterministic in-memory embedding and vector-store fixture**; it is not a SentenceTransformer/Qdrant benchmark and never downloads a model. Evaluation exits nonzero unless every declared unsupported question is rejected by the deterministic evidence gate.
 
 ```bash
 python -m compileall -q app tests
@@ -67,11 +67,11 @@ Measured on this checkout (offline deterministic evaluation):
 
 | Mode | Retrieval hit rate | Unsupported rejection | Average latency |
 |---|---:|---:|---:|
-| lexical | 11/13 (85%) | 2/3 (67%) | 0.094 ms |
-| semantic | 10/13 (77%) | 2/3 (67%) | 0.017 ms |
-| hybrid | 11/13 (85%) | 2/3 (67%) | 0.090 ms |
+| lexical | 11/13 (85%) | 3/3 (100%) | host-dependent |
+| semantic | 10/13 (77%) | 3/3 (100%) | host-dependent |
+| hybrid | 11/13 (85%) | 3/3 (100%) | host-dependent |
 
-These values were measured locally with the offline deterministic evaluation fixture; rerun it because latency is host-dependent. The evaluation is a regression fixture, not a benchmark. It measures whether expected synthetic evidence appears first and whether unsupported prompts return no evidence.
+The hit-rate values were measured locally with the offline deterministic fixture; rerun it because latency is host-dependent. The evaluation is a regression fixture, not a benchmark. It measures whether expected synthetic evidence appears first and whether the deterministic evidence gate rejects declared unsupported prompts.
 
 ## Optional answer provider
 

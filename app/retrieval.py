@@ -44,9 +44,15 @@ class VectorStore(Protocol):
 
     def reset(self) -> None: ...
 
+    def reconcile(self, chunks: list[dict[str, str]], vectors: list[list[float]]) -> None: ...
+
 
 class EmbeddingUnavailable(RuntimeError):
     pass
+
+
+class VectorStoreUnavailable(EmbeddingUnavailable):
+    """The optional vector backend could not be contacted or initialized."""
 
 
 class SentenceTransformerProvider:
@@ -117,22 +123,34 @@ class InMemoryVectorStore:
     def reset(self) -> None:
         self.items.clear()
 
+    def reconcile(self, chunks: list[dict[str, str]], vectors: list[list[float]]) -> None:
+        self.reset()
+        self.upsert(chunks, vectors)
+
 
 class QdrantVectorStore:
-    def __init__(self, url: str, collection: str, dimension: int) -> None:
+    def __init__(self, url: str, collection: str, dimension: int, client: object | None = None) -> None:
         try:
             from qdrant_client import QdrantClient, models
         except ImportError as exc:
             raise EmbeddingUnavailable("qdrant-client is unavailable; install semantic extras") from exc
         self._models, self._dimension = models, dimension
-        self.client = QdrantClient(url=url, timeout=5)
+        try:
+            self.client = client or QdrantClient(url=url, timeout=5)
+        except Exception as exc:
+            raise VectorStoreUnavailable("Qdrant initialization failed") from exc
         self.collection = collection
-        if not self.client.collection_exists(collection):
-            self.client.create_collection(collection, vectors_config=models.VectorParams(size=dimension, distance=models.Distance.COSINE))
-        else:
-            stored_dimension = self.client.get_collection(collection).config.params.vectors.size
-            if stored_dimension != dimension:
-                raise ValueError(f"vector dimension mismatch: collection has {stored_dimension}, embedding provider has {dimension}")
+        try:
+            if not self.client.collection_exists(collection):
+                self.client.create_collection(collection, vectors_config=models.VectorParams(size=dimension, distance=models.Distance.COSINE))
+            else:
+                stored_dimension = self.client.get_collection(collection).config.params.vectors.size
+                if stored_dimension != dimension:
+                    raise ValueError(f"vector dimension mismatch: collection has {stored_dimension}, embedding provider has {dimension}")
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise VectorStoreUnavailable("Qdrant collection initialization failed") from exc
 
     @property
     def dimension(self) -> int:
@@ -164,8 +182,16 @@ class QdrantVectorStore:
         return len(points)
 
     def reset(self) -> None:
-        self.client.delete_collection(self.collection)
-        self.client.create_collection(self.collection, vectors_config=self._models.VectorParams(size=self.dimension, distance=self._models.Distance.COSINE))
+        try:
+            self.client.delete_collection(self.collection)
+            self.client.create_collection(self.collection, vectors_config=self._models.VectorParams(size=self.dimension, distance=self._models.Distance.COSINE))
+        except Exception as exc:
+            raise VectorStoreUnavailable("Qdrant reset failed") from exc
+
+    def reconcile(self, chunks: list[dict[str, str]], vectors: list[list[float]]) -> None:
+        self.reset()
+        if chunks:
+            self.upsert(chunks, vectors)
 
 
 class LocalRetriever:
@@ -177,7 +203,7 @@ class LocalRetriever:
         if self.state_path and self.state_path.exists():
             saved = json.loads(self.state_path.read_text(encoding="utf-8"))
             self.chunks, self.documents = saved.get("chunks", []), saved.get("documents", {})
-            if self.embedding_provider and self.vector_store and self.chunks:
+            if self.embedding_provider and self.vector_store:
                 self._sync_vectors()
 
     def _save(self) -> None:
@@ -186,8 +212,9 @@ class LocalRetriever:
             self.state_path.write_text(json.dumps({"chunks": self.chunks, "documents": self.documents}), encoding="utf-8")
 
     def _sync_vectors(self) -> None:
-        if self.embedding_provider and self.vector_store and self.chunks:
-            self.vector_store.upsert(self.chunks, self.embedding_provider.embed([chunk["text"] for chunk in self.chunks]))
+        if self.embedding_provider and self.vector_store:
+            vectors = self.embedding_provider.embed([chunk["text"] for chunk in self.chunks]) if self.chunks else []
+            self.vector_store.reconcile(self.chunks, vectors)
 
     def add(self, chunks: list[dict[str, str]], checksum: str | None = None) -> None:
         if not chunks:
@@ -214,18 +241,18 @@ class LocalRetriever:
         count = sum(chunk["document"] == name for chunk in self.chunks)
         if not count:
             return 0
-        self.chunks = [chunk for chunk in self.chunks if chunk["document"] != name]
-        del self.documents[name]
         if self.vector_store:
             self.vector_store.delete_document(name)
+        self.chunks = [chunk for chunk in self.chunks if chunk["document"] != name]
+        del self.documents[name]
         self._save()
         return count
 
     def reset(self) -> int:
         count = len(self.chunks)
-        self.chunks, self.documents = [], {}
         if self.vector_store:
             self.vector_store.reset()
+        self.chunks, self.documents = [], {}
         self._save()
         return count
 
@@ -241,7 +268,12 @@ class LocalRetriever:
     def semantic_search(self, question: str, top_k: int = 3) -> list[Hit]:
         if not self.embedding_provider or not self.vector_store:
             raise EmbeddingUnavailable("semantic retrieval is not configured")
-        return self.vector_store.search(self.embedding_provider.embed([question])[0], top_k)
+        try:
+            return self.vector_store.search(self.embedding_provider.embed([question])[0], top_k)
+        except EmbeddingUnavailable:
+            raise
+        except Exception as exc:
+            raise VectorStoreUnavailable("semantic vector query failed") from exc
 
     def search(self, question: str, top_k: int = 3, mode: str = "lexical") -> tuple[list[Hit], str, str | None]:
         if mode == "lexical":

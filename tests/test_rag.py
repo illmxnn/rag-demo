@@ -1,9 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.ingest import ParsedDocument, chunk_text, parse_document
-from app.main import app, retriever
+from app.main import app, build_retriever, has_sufficient_evidence, retriever
 from app.providers import INSUFFICIENT, LocalExtractiveProvider
-from app.retrieval import InMemoryVectorStore, LocalRetriever, reciprocal_rank_fusion
+from app.retrieval import InMemoryVectorStore, LocalRetriever, QdrantVectorStore, VectorStoreUnavailable, reciprocal_rank_fusion
 
 
 class FakeEmbedding:
@@ -13,6 +13,16 @@ class FakeEmbedding:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[1.0, 0.0] if "return" in text.lower() else [0.0, 1.0] for text in texts]
+
+
+class TrackingVectorStore(InMemoryVectorStore):
+    def __init__(self) -> None:
+        super().__init__(2)
+        self.reconciliations = 0
+
+    def reconcile(self, chunks, vectors) -> None:
+        self.reconciliations += 1
+        super().reconcile(chunks, vectors)
 
 
 def setup_function() -> None:
@@ -59,6 +69,41 @@ def test_dimension_mismatch_and_semantic_fallback() -> None:
     assert hits and mode == "lexical" and fallback
 
 
+def test_semantic_startup_transport_failure_has_explicit_lexical_fallback(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("SEMANTIC_ENABLED", "true")
+    monkeypatch.setenv("RAG_STATE_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setattr("app.main.QdrantVectorStore", lambda *args: (_ for _ in ()).throw(VectorStoreUnavailable("Qdrant collection initialization failed")))
+    fallback = build_retriever()
+    assert fallback.embedding_provider is None
+    assert fallback.startup_fallback_reason == "Qdrant collection initialization failed"
+
+
+def test_qdrant_lifecycle_failure_is_normalized(monkeypatch) -> None:
+    class BrokenClient:
+        def collection_exists(self, collection):
+            raise RuntimeError("connection refused")
+
+    try:
+        QdrantVectorStore("http://unused", "chunks", 2, client=BrokenClient())
+    except VectorStoreUnavailable as exc:
+        assert "initialization failed" in str(exc)
+    else:
+        raise AssertionError("transport failure was not normalized")
+
+
+def test_restart_reconciles_vectors_and_delete_reset_preserve_registry_order(tmp_path) -> None:
+    path = tmp_path / "documents.json"
+    store = TrackingVectorStore()
+    index = LocalRetriever(path, FakeEmbedding(), store)
+    index.add([{"chunk_id": "a#1", "document": "a.txt", "text": "return policy"}])
+    restarted = LocalRetriever(path, FakeEmbedding(), store)
+    assert restarted.documents == {"a.txt": restarted.documents["a.txt"]}
+    assert store.reconciliations == 1 and "a#1" in store.items
+    assert restarted.delete_document("a.txt") == 1 and not store.items
+    restarted.add([{"chunk_id": "b#1", "document": "b.txt", "text": "shipping policy"}])
+    assert restarted.reset() == 1 and not restarted.documents and not store.items
+
+
 def test_api_documents_duplicate_delete_reset_and_unsupported() -> None:
     client = TestClient(app)
     response = client.post("/documents", files={"file": ("handbook.txt", b"Returns are allowed for 30 days.", "text/plain")})
@@ -71,6 +116,13 @@ def test_api_documents_duplicate_delete_reset_and_unsupported() -> None:
     assert unknown["sufficient_evidence"] is False and unknown["answer"] == INSUFFICIENT and unknown["citations"] == []
     assert client.delete("/documents/handbook.txt").status_code == 204
     assert client.delete("/documents").json()["deleted_chunks"] == 0
+
+
+def test_evidence_gate_rejects_related_but_unsupported_claims() -> None:
+    domestic = type("Hit", (), {"text": "Express shipping is available for domestic orders.", "score": 1.0})()
+    unavailable = type("Hit", (), {"text": "Weekend support is unavailable.", "score": 1.0})()
+    assert not has_sufficient_evidence("Do you offer international shipping?", [domestic], "lexical")
+    assert not has_sufficient_evidence("Is weekend support available?", [unavailable], "lexical")
 
 
 def test_provider_failure_and_injection_evidence_behavior(monkeypatch) -> None:
